@@ -13,6 +13,7 @@
 #include "settings/SettingsComponent.h"
 #include "taskbar/TaskbarComponent.h"
 #include "ui/WindowManager.h"
+#include "ai/AIComponent.h"
 #ifdef LINUX_DBUS
 #include "mpris/MprisComponent.h"
 #endif
@@ -63,6 +64,7 @@ void ComponentManager::initialize()
   registerComponent(&PowerComponent::Get());
   registerComponent(&TaskbarComponent::Get());
   registerComponent(&WindowManager::Get());
+  registerComponent(&AIComponent::Get());
 #ifdef LINUX_DBUS
   registerComponent(&MprisComponent::Get());
 #endif

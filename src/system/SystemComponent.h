@@ -3,6 +3,7 @@
 
 #include "ComponentManager.h"
 #include <QTimer>
+#include <QProcess>
 #include <QNetworkReply>
 #include <QNetworkAccessManager>
 #include <QJSValue>
@@ -63,6 +64,16 @@ public:
   Q_SIGNAL void pageContentReady(QString html, QString finalUrl, bool hadCSP);
 
   Q_INVOKABLE void checkForUpdates();
+
+  // yt-dlp integration
+  Q_INVOKABLE void ytDlpFetchPlaylist(const QString& url);
+  Q_INVOKABLE void ytDlpDownload(const QStringList& urls, const QString& outputDir, const QString& format);
+  Q_INVOKABLE void ytDlpCancel();
+  Q_INVOKABLE QString pickDirectory(const QString& title);
+  Q_SIGNAL void ytDlpPlaylistReady(const QString& jsonLines);
+  Q_SIGNAL void ytDlpDownloadProgress(const QString& line);
+  Q_SIGNAL void ytDlpDone(int exitCode);
+  Q_SIGNAL void ytDlpFailed(const QString& error);
 
   // called by the web-client when everything is properly inited
   Q_INVOKABLE void hello(const QString& version);
@@ -129,7 +140,12 @@ private:
 
   void setReplyTimeout(QNetworkReply* reply, int ms);
 
+  QString findYtDlp();
+  QString findFfmpeg();
+  void killYtDlp();
+
   QNetworkAccessManager* m_networkManager;
+  QProcess* m_ytDlpProcess = nullptr;
   PlatformType m_platformType;
   PlatformArch m_platformArch;
   bool m_doLogMessages;

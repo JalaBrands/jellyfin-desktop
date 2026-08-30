@@ -54,6 +54,9 @@ public:
     return m_storage;
   }
 
+  void setDisplayName(const QString& name) { m_displayName = name; }
+  QString displayName() const { return m_displayName; }
+
   Q_SIGNAL void valuesUpdated(const QVariantMap& values);
 
 protected:
@@ -63,6 +66,7 @@ protected:
   QHash<QString, SettingsValue*> m_values;
   QString m_sectionID;
   int m_orderIndex;
+  QString m_displayName;
   quint8 m_platform;
   bool m_hidden;
   bool m_storage;

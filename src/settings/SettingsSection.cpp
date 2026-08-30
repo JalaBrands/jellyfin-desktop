@@ -226,6 +226,8 @@ const QVariantMap SettingsSection::sectionOrder() const
 
   map.insert("key", m_sectionID);
   map.insert("order", m_orderIndex);
+  if (!m_displayName.isEmpty())
+    map.insert("display_name", m_displayName);
 
   return map;
 }

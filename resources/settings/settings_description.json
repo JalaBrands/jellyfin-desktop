@@ -711,4 +711,55 @@
       }
     ]
   }
+,
+  {
+    "section": "ai",
+    "order": 99,
+    "display_name": "AI Playlist",
+    "values": [
+      {
+        "value": "provider",
+        "display_name": "AI Provider",
+        "help": "Choose OpenAI (cloud, requires API key) or Ollama (local, runs on your machine).",
+        "default": "openai",
+        "possible_values": [
+          ["openai", "OpenAI (Cloud)"],
+          ["ollama", "Ollama (Local)"]
+        ]
+      },
+      {
+        "value": "openai_api_key",
+        "display_name": "OpenAI API Key",
+        "help": "Your OpenAI API key (sk-...). Only needed when using the OpenAI provider.",
+        "default": "",
+        "input_type": "password"
+      },
+      {
+        "value": "openai_model",
+        "display_name": "OpenAI Model",
+        "help": "Which OpenAI model to use. gpt-4o-mini is fast and cost-efficient.",
+        "default": "gpt-4o-mini",
+        "possible_values": [
+          ["gpt-4o-mini", "GPT-4o Mini (Recommended)"],
+          ["gpt-4o", "GPT-4o"],
+          ["gpt-4-turbo", "GPT-4 Turbo"],
+          ["gpt-3.5-turbo", "GPT-3.5 Turbo"]
+        ]
+      },
+      {
+        "value": "ollama_base_url",
+        "display_name": "Ollama Base URL",
+        "help": "URL of your Ollama server. Default is http://localhost:11434 for a local install.",
+        "default": "http://localhost:11434",
+        "input_type": "text"
+      },
+      {
+        "value": "ollama_model",
+        "display_name": "Ollama Model",
+        "help": "Name of the Ollama model to use (e.g. qwen3:8b). Click Load Models to fetch from your server.",
+        "default": "qwen3:8b",
+        "input_type": "text"
+      }
+    ]
+  }
 ]

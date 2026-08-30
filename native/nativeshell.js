@@ -342,8 +342,75 @@ window.NativeShell.AppHost = {
     }
 };
 
+// Fetches available GPT chat models from OpenAI and repopulates the model select in the AI section.
+async function refreshAiModels(apiKey, sectionGroup) {
+    if (!apiKey || !apiKey.startsWith('sk-')) return;
+
+    const modelSelect = sectionGroup ? sectionGroup.querySelector('select[data-ai-model]') : null;
+    if (!modelSelect) return;
+
+    const statusEl = sectionGroup.querySelector('[data-ai-model-status]');
+    if (statusEl) statusEl.textContent = '⏳ Loading models…';
+
+    try {
+        const resp = await fetch('https://api.openai.com/v1/models', {
+            headers: { 'Authorization': 'Bearer ' + apiKey }
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+
+        // Filter to chat-capable models, sort newest first
+        const chatModels = data.data
+            .map(m => m.id)
+            .filter(id => id.startsWith('gpt-') && !id.includes('instruct') && !id.includes('realtime') && !id.includes('audio') && !id.includes('vision'))
+            .sort((a, b) => b.localeCompare(a));
+
+        if (!chatModels.length) throw new Error('No GPT models found');
+
+        const currentVal = jmpInfo.settings.ai.openai_model || 'gpt-4o-mini';
+        modelSelect.innerHTML = '';
+        for (const id of chatModels) {
+            const opt = document.createElement('option');
+            opt.value = id;
+            opt.textContent = id;
+            opt.selected = id === currentVal;
+            modelSelect.appendChild(opt);
+        }
+        if (statusEl) statusEl.textContent = '✅ ' + chatModels.length + ' models loaded';
+    } catch (err) {
+        if (statusEl) statusEl.textContent = '❌ ' + err.message;
+    }
+}
+
+// Fetches models available in a local Ollama instance and updates the ollama_model input.
+async function refreshOllamaModels(baseUrl, sectionGroup) {
+    const statusEl = sectionGroup ? sectionGroup.querySelector('[data-ollama-model-status]') : null;
+    const input    = sectionGroup ? sectionGroup.querySelector('input[data-ollama-model]') : null;
+    if (statusEl) statusEl.textContent = '⏳ Connecting to Ollama…';
+    try {
+        const url = (baseUrl || 'http://localhost:11434').replace(/\/$/, '');
+        const resp = await fetch(url + '/api/tags');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        const models = (data.models || []).map(m => m.name).sort();
+        if (!models.length) throw new Error('No models found');
+        if (statusEl) statusEl.textContent = '✅ Available: ' + models.join(', ');
+        // If current value isn't set, default to first model
+        if (input && !input.value) input.value = models[0];
+    } catch (err) {
+        if (statusEl) statusEl.textContent = '❌ ' + err.message + ' — is Ollama running?';
+    }
+}
+
+// Show/hide provider-specific fields based on current provider value
+function updateAiProviderVisibility(provider, sectionGroup) {
+    sectionGroup.querySelectorAll('[data-ai-provider-field]').forEach(el => {
+        const forProvider = el.getAttribute('data-ai-provider-field');
+        el.style.display = (forProvider === provider || forProvider === 'all') ? '' : 'none';
+    });
+}
+
 async function showSettingsModal() {
-    await initCompleted;
 
     const tooltipCSS = `
         .tooltip {
@@ -408,6 +475,44 @@ async function showSettingsModal() {
     modalContents.style.marginBottom = "6.2em";
     modalContainer2.appendChild(modalContents);
 
+    // Music Tools section (at top for visibility)
+    const toolsGroup = document.createElement("fieldset");
+    toolsGroup.className = "editItemMetadataForm editMetadataForm dialog-content-centered";
+    toolsGroup.style.border = 0;
+    toolsGroup.style.outline = 0;
+    modalContents.appendChild(toolsGroup);
+    const toolsLegend = document.createElement("legend");
+    const toolsHeader = document.createElement("h2");
+    toolsHeader.textContent = "Music Tools";
+    toolsLegend.appendChild(toolsHeader);
+    toolsGroup.appendChild(toolsLegend);
+
+    const toolsBtnRow = document.createElement("div");
+    toolsBtnRow.style.cssText = "display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:8px;";
+    toolsGroup.appendChild(toolsBtnRow);
+
+    const aiBtn = document.createElement("button");
+    aiBtn.className = "raised button-submit emby-button";
+    aiBtn.textContent = "🎵 AI Playlist";
+    aiBtn.addEventListener("click", () => {
+        modalContainer.remove();
+        if (!document.getElementById('jmp-ai-playlist-panel-overlay')) {
+            window.dispatchEvent(new CustomEvent('jmp-open-ai-playlist'));
+        }
+    });
+    toolsBtnRow.appendChild(aiBtn);
+
+    const ytBtn = document.createElement("button");
+    ytBtn.className = "raised button-submit emby-button";
+    ytBtn.textContent = "▶ YouTube Import";
+    ytBtn.addEventListener("click", () => {
+        modalContainer.remove();
+        if (!document.getElementById('jmp-yt-import-panel-overlay')) {
+            window.dispatchEvent(new CustomEvent('jmp-open-yt-import'));
+        }
+    });
+    toolsBtnRow.appendChild(ytBtn);
+
     const settingUpdateHandlers = {};
     for (const sectionOrder of jmpInfo.sections.sort((a, b) => a.order - b.order)) {
         const section = sectionOrder.key;
@@ -427,8 +532,8 @@ async function showSettingsModal() {
 
             const legend = document.createElement("legend");
             const legendHeader = document.createElement("h2");
-            legendHeader.textContent = section;
-            legendHeader.style.textTransform = "capitalize";
+            legendHeader.textContent = sectionOrder.display_name || section;
+            legendHeader.style.textTransform = sectionOrder.display_name ? "none" : "capitalize";
             legend.appendChild(legendHeader);
             if (section == "other") {
                 const legendSubHeader = document.createElement("h4");
@@ -461,6 +566,10 @@ async function showSettingsModal() {
                     const safeValues = {};
                     const control = document.createElement("select");
                     control.className = "emby-select-withcolor emby-select";
+                    // Mark the AI model select for dynamic model loading
+                    if (section === "ai" && setting.key === "openai_model") {
+                        control.setAttribute("data-ai-model", "1");
+                    }
                     for (const option of setting.options) {
                         safeValues[String(option.value)] = option.value;
                         const opt = document.createElement("option");
@@ -478,7 +587,11 @@ async function showSettingsModal() {
                         control.appendChild(opt);
                     }
                     control.addEventListener("change", async (e) => {
-                        jmpInfo.settings[section][setting.key] = safeValues[e.target.value];
+                        jmpInfo.settings[section][setting.key] = safeValues[e.target.value] ?? e.target.value;
+                        // When provider changes, show/hide relevant AI fields
+                        if (section === "ai" && setting.key === "provider") {
+                            updateAiProviderVisibility(e.target.value, group);
+                        }
                     });
                     const labelText = document.createElement('label');
                     labelText.className = "inputLabel";
@@ -486,6 +599,38 @@ async function showSettingsModal() {
                     label.appendChild(labelText);
                     if (helpElement) label.appendChild(helpElement);
                     label.appendChild(control);
+                    // For the AI model select, add a refresh button + status line
+                    if (section === "ai" && setting.key === "openai_model") {
+                        const row = document.createElement("div");
+                        row.style.cssText = "display:flex;align-items:center;gap:10px;margin-top:6px;";
+                        const refreshBtn = document.createElement("button");
+                        refreshBtn.textContent = "🔄 Load Models from OpenAI";
+                        refreshBtn.className = "raised button-submit emby-button";
+                        refreshBtn.style.cssText = "padding:6px 14px;font-size:13px;cursor:pointer;";
+                        refreshBtn.addEventListener("click", () => {
+                            const apiKey = jmpInfo.settings.ai.openai_api_key || "";
+                            refreshAiModels(apiKey, group);
+                        });
+                        const statusSpan = document.createElement("span");
+                        statusSpan.setAttribute("data-ai-model-status", "1");
+                        statusSpan.style.cssText = "font-size:12px;color:#aaa;";
+                        row.appendChild(refreshBtn);
+                        row.appendChild(statusSpan);
+                        label.appendChild(row);
+                        // Auto-load if API key is already set
+                        const existingKey = jmpInfo.settings.ai && jmpInfo.settings.ai.openai_api_key;
+                        if (existingKey && existingKey.startsWith('sk-')) {
+                            setTimeout(() => refreshAiModels(existingKey, group), 100);
+                        }
+                    }
+                    // Tag AI provider-specific fields for show/hide
+                    if (section === "ai") {
+                        const providerField = setting.key === "provider" ? "all"
+                            : (setting.key === "openai_api_key" || setting.key === "openai_model") ? "openai"
+                            : (setting.key === "ollama_base_url" || setting.key === "ollama_model") ? "ollama"
+                            : null;
+                        if (providerField) label.setAttribute("data-ai-provider-field", providerField);
+                    }
                 } else if (setting.inputType === "textarea") {
                     const control = document.createElement("textarea");
                     control.className = "emby-select-withcolor emby-select";
@@ -501,6 +646,55 @@ async function showSettingsModal() {
                     label.appendChild(labelText);
                     if (helpElement) label.appendChild(helpElement);
                     label.appendChild(control);
+                } else if (setting.inputType === "text" || setting.inputType === "password") {
+                    const control = document.createElement("input");
+                    control.type = setting.inputType;
+                    control.className = "emby-input";
+                    control.style.cssText = "width:100%;box-sizing:border-box;margin-top:4px;";
+                    control.value = values[setting.key] || "";
+                    control.placeholder = setting.inputType === "password" ? "sk-..." : "";
+                    if (section === "ai" && setting.key === "ollama_model") {
+                        control.setAttribute("data-ollama-model", "1");
+                    }
+                    control.addEventListener("change", e => {
+                        jmpInfo.settings[section][setting.key] = e.target.value;
+                        // When the AI API key changes, trigger model refresh
+                        if (section === "ai" && setting.key === "openai_api_key") {
+                            refreshAiModels(e.target.value, group);
+                        }
+                    });
+                    const labelText = document.createElement('label');
+                    labelText.className = "inputLabel";
+                    labelText.textContent = (setting.displayName ? setting.displayName : setting.key) + ": ";
+                    label.appendChild(labelText);
+                    if (helpElement) label.appendChild(helpElement);
+                    label.appendChild(control);
+                    // For ollama_model, add a "Load Models" button
+                    if (section === "ai" && setting.key === "ollama_model") {
+                        const row = document.createElement("div");
+                        row.style.cssText = "display:flex;align-items:center;gap:10px;margin-top:6px;";
+                        const loadBtn = document.createElement("button");
+                        loadBtn.textContent = "🦙 Load Ollama Models";
+                        loadBtn.className = "raised button-submit emby-button";
+                        loadBtn.style.cssText = "padding:6px 14px;font-size:13px;cursor:pointer;";
+                        loadBtn.addEventListener("click", () => {
+                            const baseUrl = jmpInfo.settings.ai.ollama_base_url || "http://localhost:11434";
+                            refreshOllamaModels(baseUrl, group);
+                        });
+                        const statusSpan = document.createElement("span");
+                        statusSpan.setAttribute("data-ollama-model-status", "1");
+                        statusSpan.style.cssText = "font-size:12px;color:#aaa;";
+                        row.appendChild(loadBtn);
+                        row.appendChild(statusSpan);
+                        label.appendChild(row);
+                    }
+                    // Tag AI provider-specific fields
+                    if (section === "ai") {
+                        const providerField = setting.key === "openai_api_key" ? "openai"
+                            : (setting.key === "ollama_base_url" || setting.key === "ollama_model") ? "ollama"
+                            : null;
+                        if (providerField) label.setAttribute("data-ai-provider-field", providerField);
+                    }
                 } else {
                     const control = document.createElement("input");
                     control.type = "checkbox";
@@ -514,6 +708,12 @@ async function showSettingsModal() {
                 }
 
                 group.appendChild(label);
+            }
+
+            // After rendering AI section, apply initial provider visibility
+            if (section === "ai") {
+                const currentProvider = (values.provider) || "openai";
+                updateAiProviderVisibility(currentProvider, group);
             }
         };
         settingUpdateHandlers[section] = () => createSection(true);

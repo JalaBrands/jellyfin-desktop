@@ -7,6 +7,7 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QFile>
+#include <QFileDialog>
 #include <QJsonObject>
 #include <QJsonDocument>
 #include <QNetworkRequest>
@@ -18,6 +19,7 @@
 #include <QSslError>
 #include <QDebug>
 #include <QRegularExpression>
+#include <QStandardPaths>
 #include <QPointer>
 #include <functional>
 
@@ -599,7 +601,9 @@ QString SystemComponent::getNativeShellScript()
     ":/web-client/extension/inputPlugin.js",
     ":/web-client/extension/updatePlugin.js",
     ":/web-client/extension/connectivityHelper.js",
-    ":/web-client/extension/nativeshell.js"
+    ":/web-client/extension/nativeshell.js",
+    ":/web-client/extension/aiPlaylist.js",
+    ":/web-client/extension/youtubeImport.js"
   };
 
   cachedScript = jmpInfoDeclaration;
@@ -730,4 +734,177 @@ QString SystemComponent::getCapabilitiesString()
     ac3channels = 8;
 
   return capstring.arg(dtschannels).arg(ac3channels);
+}
+
+// ---------------------------------------------------------------------------
+// yt-dlp integration
+// ---------------------------------------------------------------------------
+
+QString SystemComponent::findYtDlp()
+{
+  // Search PATH first
+  QString found = QStandardPaths::findExecutable("yt-dlp");
+  if (!found.isEmpty()) return found;
+
+  // Fallback: common Mac/Linux locations
+  QStringList candidates = {
+    "/opt/homebrew/bin/yt-dlp",
+    "/usr/local/bin/yt-dlp",
+    QDir::homePath() + "/.local/bin/yt-dlp",
+    "/usr/bin/yt-dlp"
+  };
+  for (const QString& p : candidates)
+    if (QFile::exists(p)) return p;
+
+  return {};
+}
+
+QString SystemComponent::findFfmpeg()
+{
+  QString found = QStandardPaths::findExecutable("ffmpeg");
+  if (!found.isEmpty()) return found;
+
+  QStringList candidates = {
+    "/opt/homebrew/bin/ffmpeg",
+    "/usr/local/bin/ffmpeg",
+    "/usr/bin/ffmpeg"
+  };
+  for (const QString& p : candidates)
+    if (QFile::exists(p)) return p;
+
+  return {};
+}
+
+void SystemComponent::killYtDlp()
+{
+  if (m_ytDlpProcess && m_ytDlpProcess->state() != QProcess::NotRunning)
+  {
+    m_ytDlpProcess->kill();
+    m_ytDlpProcess->waitForFinished(2000);
+  }
+  if (m_ytDlpProcess)
+  {
+    m_ytDlpProcess->deleteLater();
+    m_ytDlpProcess = nullptr;
+  }
+}
+
+void SystemComponent::ytDlpCancel()
+{
+  killYtDlp();
+  emit ytDlpFailed("Cancelled");
+}
+
+void SystemComponent::ytDlpFetchPlaylist(const QString& url)
+{
+  QString exe = findYtDlp();
+  if (exe.isEmpty())
+  {
+    emit ytDlpFailed("yt-dlp not found. Install it with: brew install yt-dlp");
+    return;
+  }
+
+  killYtDlp();
+  m_ytDlpProcess = new QProcess(this);
+
+  QStringList args = {
+    "--flat-playlist", "-j",
+    "--no-warnings", "-q",
+    url
+  };
+  qDebug() << "ytDlpFetchPlaylist:" << exe << args;
+  m_ytDlpProcess->start(exe, args);
+
+  connect(m_ytDlpProcess,
+    QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+    this, [this](int /*exitCode*/, QProcess::ExitStatus)
+  {
+    QString out = QString::fromUtf8(m_ytDlpProcess->readAllStandardOutput());
+    QString err = QString::fromUtf8(m_ytDlpProcess->readAllStandardError()).trimmed();
+    m_ytDlpProcess->deleteLater();
+    m_ytDlpProcess = nullptr;
+
+    if (out.trimmed().isEmpty())
+      emit ytDlpFailed(err.isEmpty()
+        ? "No output from yt-dlp. Is the playlist public?"
+        : err.left(300));
+    else
+      emit ytDlpPlaylistReady(out);
+  });
+}
+
+void SystemComponent::ytDlpDownload(const QStringList& urls,
+                                     const QString& outputDir,
+                                     const QString& format)
+{
+  QString exe = findYtDlp();
+  if (exe.isEmpty())
+  {
+    emit ytDlpFailed("yt-dlp not found. Install it with: brew install yt-dlp");
+    return;
+  }
+
+  if (urls.isEmpty())
+  {
+    emit ytDlpDone(0);
+    return;
+  }
+
+  killYtDlp();
+  m_ytDlpProcess = new QProcess(this);
+  m_ytDlpProcess->setProcessChannelMode(QProcess::MergedChannels);
+
+  // Output template: Artist - Title.ext
+  QString outTemplate = outputDir + "/%(uploader)s - %(title)s.%(ext)s";
+
+  QStringList args = {
+    "-x",
+    "--audio-format", format,
+    "--audio-quality", "0",
+    "-o", outTemplate,
+    "--embed-thumbnail",
+    "--embed-metadata",
+    "--convert-thumbnails", "jpg",
+    "--no-warnings",
+  };
+
+  QString ffmpeg = findFfmpeg();
+  if (!ffmpeg.isEmpty())
+    args << "--ffmpeg-location" << QFileInfo(ffmpeg).absolutePath();
+
+  args << urls;
+  qDebug() << "ytDlpDownload:" << exe << args;
+  m_ytDlpProcess->start(exe, args);
+
+  connect(m_ytDlpProcess, &QProcess::readyReadStandardOutput,
+    this, [this]()
+  {
+    QByteArray data = m_ytDlpProcess->readAllStandardOutput();
+    QString text = QString::fromUtf8(data);
+    for (const QString& raw : text.split('\n'))
+    {
+      // yt-dlp uses \r for progress bar overwrites — split those too
+      for (const QString& line : raw.split('\r'))
+      {
+        QString t = line.trimmed();
+        if (!t.isEmpty()) emit ytDlpDownloadProgress(t);
+      }
+    }
+  });
+
+  connect(m_ytDlpProcess,
+    QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+    this, [this](int exitCode, QProcess::ExitStatus)
+  {
+    m_ytDlpProcess->deleteLater();
+    m_ytDlpProcess = nullptr;
+    emit ytDlpDone(exitCode);
+  });
+}
+
+QString SystemComponent::pickDirectory(const QString& title)
+{
+  return QFileDialog::getExistingDirectory(
+    nullptr, title, QDir::homePath(),
+    QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
 }

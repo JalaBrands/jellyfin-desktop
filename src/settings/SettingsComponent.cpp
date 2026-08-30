@@ -554,6 +554,8 @@ void SettingsComponent::parseSection(const QJsonObject& sectionObject)
   auto section = new SettingsSection(sectionName, static_cast<quint8>(platformMask), sectionOrder, this);
   section->setHidden(sectionObject.value("hidden").toBool(false));
   section->setStorage(sectionObject.value("storage").toBool(false));
+  if (sectionObject.contains("display_name"))
+    section->setDisplayName(sectionObject.value("display_name").toString());
 
   auto values = sectionObject.value("values").toArray();
   int order = 0;
