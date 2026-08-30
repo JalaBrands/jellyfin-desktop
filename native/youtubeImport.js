@@ -330,11 +330,49 @@
     }
 
     function tokenSimilarity(a, b) {
-        const tok = s => new Set(s.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean));
+        const tok = s => new Set(normalizeTrackText(s).split(/\s+/).filter(Boolean));
         const ta = tok(a); const tb = tok(b);
         if (!ta.size || !tb.size) return 0;
         let hits = 0; tb.forEach(t => { if (ta.has(t)) hits++; });
         return hits / Math.max(ta.size, tb.size);
+    }
+
+    function normalizeTrackText(value) {
+        return String(value || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/&/g, ' and ')
+            .replace(/\b(feat|ft|featuring)\b\.?/gi, ' ')
+            .replace(/\b(remaster(ed)?|explicit|clean|mono|stereo|single|album|version|radio|edit|official|audio|video|lyrics?|visualizer|hd|4k)\b/gi, ' ')
+            .replace(/[()[\]{}'"`]/g, ' ')
+            .replace(/[^\w\s]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLowerCase();
+    }
+
+    function levenshteinRatio(a, b) {
+        a = normalizeTrackText(a);
+        b = normalizeTrackText(b);
+        if (!a || !b) return 0;
+        if (a === b) return 1;
+
+        const previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+        const current = new Array(b.length + 1);
+        for (let i = 1; i <= a.length; i++) {
+            current[0] = i;
+            for (let j = 1; j <= b.length; j++) {
+                const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+                current[j] = Math.min(
+                    current[j - 1] + 1,
+                    previous[j] + 1,
+                    previous[j - 1] + cost
+                );
+            }
+            for (let j = 0; j <= b.length; j++) previous[j] = current[j];
+        }
+        const distance = previous[b.length];
+        return 1 - (distance / Math.max(a.length, b.length));
     }
 
     function uniqueValues(values) {
@@ -368,6 +406,73 @@
         return [item.AlbumArtist, ...(item.Artists || [])].filter(Boolean);
     }
 
+    let audioLibraryCache = null;
+
+    async function fetchAudioLibraryPool() {
+        if (audioLibraryCache) return audioLibraryCache;
+
+        const ac = window.ApiClient;
+        if (!ac) return [];
+        const userId = ac.getCurrentUserId();
+        const serverAddress = ac.serverAddress();
+        const token = ac.accessToken();
+
+        const items = [];
+        const pageSize = 1000;
+        for (let start = 0; start < 20000; start += pageSize) {
+            const url = new URL(`${serverAddress}/Items`);
+            url.searchParams.set('IncludeItemTypes', 'Audio');
+            url.searchParams.set('Recursive', 'true');
+            url.searchParams.set('StartIndex', String(start));
+            url.searchParams.set('Limit', String(pageSize));
+            url.searchParams.set('Fields', 'AlbumArtist,Artists,Album,ProductionYear');
+            url.searchParams.set('SortBy', 'SortName');
+            url.searchParams.set('userId', userId);
+
+            try {
+                const res = await fetch(url.toString(), { headers: { 'X-Emby-Token': token } });
+                if (!res.ok) break;
+                const data = await res.json();
+                const page = data.Items || [];
+                items.push(...page);
+                if (page.length < pageSize) break;
+            } catch (err) {
+                console.warn('YouTube import: failed to fetch audio library pool', err);
+                break;
+            }
+        }
+
+        console.log(`YouTube import: cached ${items.length} Jellyfin audio tracks for fuzzy matching`);
+        audioLibraryCache = items;
+        return audioLibraryCache;
+    }
+
+    function scoreJellyfinCandidate(title, artist, item) {
+        const itemTitle = item.Name || '';
+        const artists = jellyfinArtists(item);
+        const titleToken = tokenSimilarity(title, itemTitle);
+        const titleRatio = levenshteinRatio(title, itemTitle);
+        const normalizedTitle = normalizeTrackText(title);
+        const normalizedItemTitle = normalizeTrackText(itemTitle);
+        const titleContains = normalizedTitle && normalizedItemTitle &&
+            (normalizedTitle.includes(normalizedItemTitle) || normalizedItemTitle.includes(normalizedTitle)) ? 1 : 0;
+        const artistScore = artist && artists.length
+            ? Math.max(...artists.map(a => Math.max(tokenSimilarity(artist, a), levenshteinRatio(artist, a))))
+            : 0;
+        const score = Math.max(titleToken, titleRatio * 0.95, titleContains * 0.9) * 0.78 + artistScore * 0.22;
+
+        return { item, score, titleScore: Math.max(titleToken, titleRatio, titleContains), artistScore };
+    }
+
+    function topFuzzyCandidates(title, artist, pool, limit = 24) {
+        return pool
+            .map(item => scoreJellyfinCandidate(title, artist, item))
+            .filter(row => row.titleScore >= 0.32 || row.score >= 0.42)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, limit)
+            .map(row => row.item);
+    }
+
     async function fetchJellyfinCandidates(title, artist) {
         const ac = window.ApiClient;
         if (!ac) return [];
@@ -382,7 +487,7 @@
             url.searchParams.set('searchTerm', q);
             url.searchParams.set('IncludeItemTypes', 'Audio');
             url.searchParams.set('Recursive', 'true');
-            url.searchParams.set('Limit', '12');
+            url.searchParams.set('Limit', '30');
             url.searchParams.set('Fields', 'AlbumArtist,Artists');
             url.searchParams.set('userId', userId);
 
@@ -393,23 +498,45 @@
                 for (const item of data.Items || []) byId.set(item.Id, item);
             } catch (_) {}
         }
-        return [...byId.values()];
+
+        const serverCandidates = [...byId.values()];
+        if (serverCandidates.length >= 8) return serverCandidates;
+
+        const fuzzyCandidates = topFuzzyCandidates(title, artist, await fetchAudioLibraryPool());
+        for (const item of fuzzyCandidates) byId.set(item.Id, item);
+        const combined = [...byId.values()];
+        console.log(`YouTube import: "${title}" has ${serverCandidates.length} Jellyfin search candidates, ${combined.length} after fuzzy library scan`);
+        return combined;
     }
 
     async function judgeJellyfinMatchWithAi(rawTitle, cleanedTitle, artist, candidates) {
         if (!candidates.length) return null;
 
         let api;
-        try { api = await window.apiPromise; } catch (_) { return null; }
-        if (!api || !api.ai || !api.ai.judgeTrackMatch) return null;
+        try { api = await window.apiPromise; } catch (err) {
+            console.warn('YouTube import: AI match skipped because native API is unavailable', err);
+            return null;
+        }
+        if (!api || !api.ai || !api.ai.judgeTrackMatch) {
+            console.warn('YouTube import: AI match skipped because AI bridge is unavailable');
+            return null;
+        }
 
-        const payloadCandidates = candidates.slice(0, 10).map((item, index) => ({
+        const rankedCandidates = candidates
+            .map(item => scoreJellyfinCandidate(cleanedTitle, artist, item))
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 14)
+            .map(row => row.item);
+
+        const payloadCandidates = rankedCandidates.map((item, index) => ({
             index,
             name: item.Name || '',
             artists: jellyfinArtists(item),
             album: item.Album || '',
             year: item.ProductionYear || null,
         }));
+
+        console.log(`YouTube import: asking AI to judge "${rawTitle}" against ${payloadCandidates.length} candidates`);
 
         return await new Promise(resolve => {
             let done = false;
@@ -429,18 +556,23 @@
                     const index = Number.isInteger(verdict.index) ? verdict.index : -1;
                     const confidence = Number(verdict.confidence || 0);
                     if (verdict.match && index >= 0 && payloadCandidates[index] && confidence >= 0.72) {
+                        console.log(`YouTube import: AI matched "${rawTitle}" to "${rankedCandidates[index].Name}" at ${Math.round(confidence * 100)}%`);
                         finish({
-                            item: candidates[index],
+                            item: rankedCandidates[index],
                             score: confidence,
                             ai: true,
                             reason: verdict.reason || ''
                         });
                     } else {
+                        console.log(`YouTube import: AI rejected candidates for "${rawTitle}" at ${Math.round(confidence * 100)}%`);
                         finish(null);
                     }
                 } catch (_) { finish(null); }
             };
-            const onError = () => finish(null);
+            const onError = error => {
+                console.warn('YouTube import: AI match error', error);
+                finish(null);
+            };
 
             api.ai.trackMatchReady.connect(onReady);
             api.ai.trackMatchError.connect(onError);
@@ -458,27 +590,22 @@
         const candidates = await fetchJellyfinCandidates(title, artist);
         if (!candidates.length) return null;
 
-        let best = null, bestScore = 0, bestTitleScore = 0;
-        for (const c of candidates) {
-            const ts = tokenSimilarity(title, c.Name || '');
-            const artists = jellyfinArtists(c);
-            const as = artist && artists.length
-                ? Math.max(...artists.map(a => tokenSimilarity(artist, a))) : 0;
-            const score = ts * 0.7 + as * 0.3;
-            if (score > bestScore) {
-                bestScore = score;
-                bestTitleScore = ts;
-                best = c;
-            }
-        }
+        const ranked = candidates
+            .map(item => scoreJellyfinCandidate(title, artist, item))
+            .sort((a, b) => b.score - a.score);
+        const bestRow = ranked[0] || null;
+        const best = bestRow?.item || null;
+        const bestScore = bestRow?.score || 0;
+        const bestTitleScore = bestRow?.titleScore || 0;
+        const bestArtistScore = bestRow?.artistScore || 0;
 
-        if (best && bestTitleScore >= 0.58)
+        if (best && bestTitleScore >= 0.78 && (!artist || bestArtistScore >= 0.25 || bestScore >= 0.82))
             return { item: best, score: bestScore, ai: false };
 
-        const aiMatch = await judgeJellyfinMatchWithAi(rawTitle || title, title, artist, candidates);
+        const aiMatch = await judgeJellyfinMatchWithAi(rawTitle || title, title, artist, ranked.map(row => row.item));
         if (aiMatch) return aiMatch;
 
-        if (best && bestTitleScore >= 0.45 && bestScore >= 0.60)
+        if (best && bestTitleScore >= 0.64 && bestScore >= 0.66)
             return { item: best, score: bestScore, ai: false };
 
         return null;

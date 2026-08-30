@@ -44,40 +44,67 @@ function injectDashboardCategoryGrid() {
     style.id = 'jmp-dashboard-category-grid-style';
     style.textContent = `
 .homePage .homeSectionsContainer .section0 .emby-scroller,
-.homePage .homeSectionsContainer .section0 .scrollFrameY {
+.homePage .homeSectionsContainer .section0 .scrollFrameY,
+.homeSectionsContainer .jmp-dashboard-category-grid .emby-scroller,
+.homeSectionsContainer .jmp-dashboard-category-grid .scrollFrameY,
+.homeSectionsContainer .jmp-dashboard-category-grid .padded-right,
+.homeSectionsContainer .jmp-dashboard-category-grid .padded-left {
     overflow: visible !important;
+    contain: none !important;
 }
 
-.homePage .homeSectionsContainer .section0 .itemsContainer {
+.homePage .homeSectionsContainer .section0 .itemsContainer,
+.homeSectionsContainer .jmp-dashboard-category-grid .itemsContainer,
+.homeSectionsContainer .jmp-dashboard-category-grid .scrollSlider,
+.homeSectionsContainer .jmp-dashboard-category-grid [is="emby-itemscontainer"] {
     display: grid !important;
-    grid-template-columns: repeat(auto-fit, minmax(10.5em, 1fr)) !important;
+    grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)) !important;
     gap: 1em !important;
     transform: none !important;
     white-space: normal !important;
     overflow: visible !important;
+    width: 100% !important;
+    max-width: none !important;
+    left: auto !important;
+    right: auto !important;
 }
 
 .homePage .homeSectionsContainer .section0 .itemsContainer > .card,
-.homePage .homeSectionsContainer .section0 .itemsContainer > .emby-scrollbuttons-scrollSlider {
+.homePage .homeSectionsContainer .section0 .itemsContainer > .emby-scrollbuttons-scrollSlider,
+.homeSectionsContainer .jmp-dashboard-category-grid .itemsContainer > .card,
+.homeSectionsContainer .jmp-dashboard-category-grid .itemsContainer > .emby-scrollbuttons-scrollSlider,
+.homeSectionsContainer .jmp-dashboard-category-grid .scrollSlider > .card,
+.homeSectionsContainer .jmp-dashboard-category-grid .scrollSlider > .emby-scrollbuttons-scrollSlider {
     width: auto !important;
     max-width: none !important;
     margin: 0 !important;
+    flex: none !important;
 }
 
-.homePage .homeSectionsContainer .section0 .itemsContainer > .card {
+.homePage .homeSectionsContainer .section0 .itemsContainer > .card,
+.homeSectionsContainer .jmp-dashboard-category-grid .itemsContainer > .card,
+.homeSectionsContainer .jmp-dashboard-category-grid .scrollSlider > .card {
     min-width: 0 !important;
 }
 
-.homePage .homeSectionsContainer .section0 .itemsContainer [class*="CardImageContainer"] {
+.homePage .homeSectionsContainer .section0 .itemsContainer [class*="CardImageContainer"],
+.homeSectionsContainer .jmp-dashboard-category-grid [class*="CardImageContainer"],
+.homeSectionsContainer .jmp-dashboard-category-grid .cardImageContainer {
     aspect-ratio: 16 / 9;
 }
 
-.homePage .homeSectionsContainer .section0 .emby-scrollbuttons {
+.homePage .homeSectionsContainer .section0 .emby-scrollbuttons,
+.homeSectionsContainer .jmp-dashboard-category-grid .emby-scrollbuttons,
+.homeSectionsContainer .jmp-dashboard-category-grid .emby-scrollbuttons-button,
+.homeSectionsContainer .jmp-dashboard-category-grid .btnPreviousPage,
+.homeSectionsContainer .jmp-dashboard-category-grid .btnNextPage {
     display: none !important;
 }
 
 @media (max-width: 720px) {
-    .homePage .homeSectionsContainer .section0 .itemsContainer {
+    .homePage .homeSectionsContainer .section0 .itemsContainer,
+    .homeSectionsContainer .jmp-dashboard-category-grid .itemsContainer,
+    .homeSectionsContainer .jmp-dashboard-category-grid .scrollSlider {
         grid-template-columns: repeat(auto-fit, minmax(8.5em, 1fr)) !important;
         gap: 0.75em !important;
     }
@@ -86,11 +113,48 @@ function injectDashboardCategoryGrid() {
     document.head.appendChild(style);
 }
 
-injectDashboardCategoryGrid();
-if (document.documentElement) {
-    new MutationObserver(injectDashboardCategoryGrid)
-        .observe(document.documentElement, { childList: true, subtree: true });
+function applyDashboardCategoryGrid() {
+    const containers = document.querySelectorAll('.homeSectionsContainer');
+    for (const container of containers) {
+        const sections = container.querySelectorAll('.section0, .verticalSection, .homeSection, .section, [class*="section"]');
+        for (const section of sections) {
+            const text = (section.querySelector('h2, .sectionTitle, .sectionTitleText, .sectionTitleTextButton')?.textContent || section.textContent || '').trim();
+            const looksLikeMyMedia = /\bMy\s+Media\b/i.test(text);
+            const hasLibraryTiles = Array.from(section.querySelectorAll('.cardText, .cardText-first, .cardTitle, .cardText-secondary'))
+                .some(el => /^(Movies|Shows|Books|Collections|Music|Photos|Live TV)$/i.test((el.textContent || '').trim()));
+
+            if (looksLikeMyMedia || hasLibraryTiles || section.classList.contains('section0')) {
+                section.classList.add('jmp-dashboard-category-grid');
+            }
+        }
+    }
 }
+
+function startDashboardCategoryGrid() {
+    injectDashboardCategoryGrid();
+    applyDashboardCategoryGrid();
+
+    if (!window.__jmpDashboardCategoryGridObserver && document.documentElement) {
+        window.__jmpDashboardCategoryGridObserver = new MutationObserver(() => {
+            injectDashboardCategoryGrid();
+            applyDashboardCategoryGrid();
+        });
+        window.__jmpDashboardCategoryGridObserver
+            .observe(document.documentElement, { childList: true, subtree: true });
+    }
+
+    if (!document.getElementById('jmp-dashboard-category-grid-style') || !window.__jmpDashboardCategoryGridObserver) {
+        window.setTimeout(startDashboardCategoryGrid, 100);
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startDashboardCategoryGrid, { once: true });
+} else {
+    startDashboardCategoryGrid();
+}
+window.setTimeout(startDashboardCategoryGrid, 500);
+window.setTimeout(startDashboardCategoryGrid, 1500);
 
 // Plugins are bundled, return class directly
 for (const plugin of plugins) {
