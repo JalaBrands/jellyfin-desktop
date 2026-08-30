@@ -243,7 +243,7 @@ Window
     settings.playbackRequiresUserGesture: false
     profile.httpUserAgent: components.system.getUserAgent()
     profile.httpCacheType: WebEngineProfile.DiskHttpCache
-    url: mainWindow.webUrl
+    url: ""
     focus: true
     property string currentHoveredUrl: ""
     onLinkHovered: function(hoveredUrl)
@@ -276,6 +276,7 @@ Window
       }
 
       web.userScripts.collection = [ nativeshell ];
+      web.url = mainWindow.webUrl
     }
 
     onLoadingChanged: function(loadingInfo)

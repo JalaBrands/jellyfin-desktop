@@ -25,6 +25,18 @@ async function tryConnect(server) {
 
 let isConnecting = false;
 
+const waitForNativeApi = async () => {
+    let attempts = 0;
+    while (!window.apiPromise && !window.api && attempts < 50) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        attempts++;
+    }
+
+    if (window.apiPromise) {
+        await window.apiPromise;
+    }
+};
+
 const updateButtonState = () => {
     const address = document.getElementById('address');
     const button = document.getElementById('connect-button');
@@ -153,7 +165,7 @@ document.addEventListener('keydown', (e) => {
 (async () => {
     console.log('Auto-connect: starting');
 
-    await window.apiPromise;
+    await waitForNativeApi();
 
     const savedServer = window.jmpInfo.settings.main.userWebClient;
     console.log('Auto-connect: savedServer =', savedServer);

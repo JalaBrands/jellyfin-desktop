@@ -38,6 +38,7 @@ const plugins = getPlugins();
 
 function injectDashboardCategoryGrid() {
     if (document.getElementById('jmp-dashboard-category-grid-style')) return;
+    if (!document.head) return;
 
     const style = document.createElement('style');
     style.id = 'jmp-dashboard-category-grid-style';
@@ -86,8 +87,10 @@ function injectDashboardCategoryGrid() {
 }
 
 injectDashboardCategoryGrid();
-new MutationObserver(injectDashboardCategoryGrid)
-    .observe(document.documentElement, { childList: true, subtree: true });
+if (document.documentElement) {
+    new MutationObserver(injectDashboardCategoryGrid)
+        .observe(document.documentElement, { childList: true, subtree: true });
+}
 
 // Plugins are bundled, return class directly
 for (const plugin of plugins) {
@@ -268,8 +271,22 @@ function getDeviceProfile() {
 async function createApi() {
     // Can't append script until document exists
     await new Promise(resolve => {
-        document.addEventListener('DOMContentLoaded', resolve);
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', resolve, { once: true });
+        } else {
+            resolve();
+        }
     });
+
+    let attempts = 0;
+    while ((!window.qt || !window.qt.webChannelTransport) && attempts < 50) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        attempts++;
+    }
+
+    if (!window.qt || !window.qt.webChannelTransport) {
+        throw new Error("Qt WebChannel transport not available");
+    }
 
     const channel = await new Promise((resolve) => {
         /*global QWebChannel */
@@ -298,7 +315,10 @@ if (settingsDescriptionsFromStorage) {
 
 jmpInfo.settingsDescriptionsUpdate = [];
 jmpInfo.settingsUpdate = [];
-window.apiPromise = createApi();
+window.apiPromise = createApi().catch(error => {
+    console.error("Failed to create native API:", error);
+    throw error;
+});
 window.initCompleted = new Promise(async (resolve) => {
     window.api = await window.apiPromise;
     const settingUpdate = (section, key) => (
