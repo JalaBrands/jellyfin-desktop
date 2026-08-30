@@ -30,6 +30,21 @@ execute_process(
   WORKING_DIRECTORY "@QTROOT@/bin"
 )
 
+# Homebrew's SDL2 package is currently sdl2-compat. It loads SDL3 at runtime
+# with dlopen(), so macdeployqt/otool cannot discover that dependency. Bundle
+# SDL3 beside the SDL2 shim under the filename that sdl2-compat searches for.
+set(sdl2_compat "${framework_path}/libSDL2-2.0.0.dylib")
+set(sdl3_source "${brew_prefix}/opt/sdl3/lib/libSDL3.dylib")
+set(sdl3_bundled "${framework_path}/libSDL3.dylib")
+if(EXISTS "${sdl2_compat}" AND EXISTS "${sdl3_source}")
+  get_filename_component(sdl3_real "${sdl3_source}" REALPATH)
+  message(STATUS "Bundling SDL3 runtime for sdl2-compat: ${sdl3_real}")
+  configure_file("${sdl3_real}" "${sdl3_bundled}" COPYONLY)
+  execute_process(
+    COMMAND install_name_tool -id "@executable_path/../Frameworks/libSDL3.dylib" "${sdl3_bundled}"
+  )
+endif()
+
 #
 # fix_install_names: Fix library paths for bundled dylibs/sos
 #

@@ -974,3 +974,4 @@ document.getElementById('address').placeholder = languageStrings.LabelServerHost
 document.getElementById('connect-button').innerText = connectText;
 document.getElementById('connect-button').setAttribute('data-original-text', connectText);
 window.cancelButtonText = 'Cancel';
+window.changeServerButtonText = 'Change Server';

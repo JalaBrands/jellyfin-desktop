@@ -35,18 +35,11 @@ const updateButtonState = () => {
     }
 };
 
-const cancelOnEscape = (e) => {
-    if (isConnecting && e.key === 'Escape') {
-        cancelConnection();
-    }
-};
-
-const startConnecting = async () => {
+const showConnectingUi = () => {
     const address = document.getElementById('address');
     const title = document.getElementById('title');
     const spinner = document.getElementById('spinner');
     const button = document.getElementById('connect-button');
-    const server = address.value;
 
     isConnecting = true;
     title.textContent = '';
@@ -55,23 +48,54 @@ const startConnecting = async () => {
     address.style.visibility = 'hidden';
     address.disabled = true;
     spinner.style.display = 'block';
-    button.style.visibility = 'hidden';
+    button.textContent = window.changeServerButtonText;
+    button.classList.add('cancel');
+    button.disabled = false;
+    button.style.visibility = 'visible';
     document.addEventListener('keydown', cancelOnEscape);
+};
+
+const showServerForm = () => {
+    const address = document.getElementById('address');
+    const title = document.getElementById('title');
+    const spinner = document.getElementById('spinner');
+    const button = document.getElementById('connect-button');
+
+    isConnecting = false;
+    title.textContent = title.getAttribute('data-original-text');
+    title.style.visibility = 'visible';
+    address.classList.remove('connecting');
+    address.style.visibility = 'visible';
+    address.disabled = false;
+    spinner.style.display = 'none';
+    button.textContent = button.getAttribute('data-original-text');
+    button.classList.remove('cancel');
+    button.style.visibility = 'visible';
+    document.removeEventListener('keydown', cancelOnEscape);
+    address.focus();
+    address.select();
+    updateButtonState();
+};
+
+const cancelOnEscape = (e) => {
+    if (isConnecting && e.key === 'Escape') {
+        cancelConnection();
+    }
+};
+
+const startConnecting = async () => {
+    const address = document.getElementById('address');
+    const server = address.value.trim();
+
+    if (!server) return;
+
+    showConnectingUi();
 
     // C++ handles retries, just wait for result
     const connected = await tryConnect(server);
 
     if (!connected) {
-        isConnecting = false;
-        title.textContent = document.getElementById('title').getAttribute('data-original-text');
-        title.style.visibility = 'visible';
-        address.classList.remove('connecting');
-        address.style.visibility = 'visible';
-        address.disabled = false;
-        spinner.style.display = 'none';
-        button.style.visibility = 'visible';
-        document.removeEventListener('keydown', cancelOnEscape);
-        updateButtonState();
+        showServerForm();
     }
 };
 
@@ -89,20 +113,7 @@ const cancelConnection = () => {
         window.jmpCheckServerConnectivity.abort();
     }
 
-    const address = document.getElementById('address');
-    const title = document.getElementById('title');
-    const spinner = document.getElementById('spinner');
-    const button = document.getElementById('connect-button');
-
-    title.textContent = document.getElementById('title').getAttribute('data-original-text');
-    title.style.visibility = 'visible';
-    address.classList.remove('connecting');
-    address.style.visibility = 'visible';
-    address.disabled = false;
-    spinner.style.display = 'none';
-    button.style.visibility = 'visible';
-    document.removeEventListener('keydown', cancelOnEscape);
-    updateButtonState();
+    showServerForm();
 };
 
 // Button click handler
@@ -110,7 +121,9 @@ document.getElementById('connect-button').addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
 
-    if (!e.target.disabled) {
+    if (isConnecting) {
+        cancelConnection();
+    } else if (!e.target.disabled) {
         startConnecting();
     }
 });
@@ -149,40 +162,19 @@ document.addEventListener('keydown', (e) => {
         console.log('Auto-connect: checking saved server', savedServer);
 
         const address = document.getElementById('address');
-        const title = document.getElementById('title');
-        const spinner = document.getElementById('spinner');
-        const button = document.getElementById('connect-button');
 
         // Set address value for potential display later
         address.value = savedServer;
 
-        // Show connecting UI
-        isConnecting = true;
-        title.textContent = '';
-        title.style.visibility = 'hidden';
-        address.classList.add('connecting');
-        address.style.visibility = 'hidden';
-        address.disabled = true;
-        spinner.style.display = 'block';
-        button.style.visibility = 'hidden';
-        document.addEventListener('keydown', cancelOnEscape);
+        // Keep a visible way to cancel auto-connect and edit the saved address.
+        showConnectingUi();
 
         // C++ handles retries, just wait for result
         const connected = await tryConnect(savedServer);
 
         if (!connected) {
             // User cancelled or error - show UI
-            isConnecting = false;
-            title.textContent = document.getElementById('title').getAttribute('data-original-text');
-            title.style.visibility = 'visible';
-            address.classList.remove('connecting');
-            address.style.visibility = 'visible';
-            address.disabled = false;
-            spinner.style.display = 'none';
-            button.style.visibility = 'visible';
-            document.removeEventListener('keydown', cancelOnEscape);
-            address.focus();
-            updateButtonState();
+            showServerForm();
         }
     } else {
         const title = document.getElementById('title');
