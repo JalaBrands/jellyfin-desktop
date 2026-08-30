@@ -343,4 +343,21 @@ if(@DO_SIGN@)
   if(NOT ${result} EQUAL 0)
     message(FATAL_ERROR "Failed to verify binary!")
   endif(NOT ${result} EQUAL 0)
-endif(@DO_SIGN@)
+else()
+  message(STATUS "Ad-hoc signing app bundle")
+  execute_process(
+    COMMAND codesign --force --deep --sign - "${app}"
+    RESULT_VARIABLE result
+  )
+  if(NOT ${result} EQUAL 0)
+    message(FATAL_ERROR "Failed to ad-hoc sign app bundle!")
+  endif()
+
+  execute_process(
+    COMMAND codesign --verify --deep --strict --verbose=2 "${app}"
+    RESULT_VARIABLE result
+  )
+  if(NOT ${result} EQUAL 0)
+    message(FATAL_ERROR "Failed to verify ad-hoc signature!")
+  endif()
+endif()
