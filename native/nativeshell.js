@@ -36,6 +36,59 @@ const getPlugins = () => {
 
 const plugins = getPlugins();
 
+function injectDashboardCategoryGrid() {
+    if (document.getElementById('jmp-dashboard-category-grid-style')) return;
+
+    const style = document.createElement('style');
+    style.id = 'jmp-dashboard-category-grid-style';
+    style.textContent = `
+.homePage .homeSectionsContainer .section0 .emby-scroller,
+.homePage .homeSectionsContainer .section0 .scrollFrameY {
+    overflow: visible !important;
+}
+
+.homePage .homeSectionsContainer .section0 .itemsContainer {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(10.5em, 1fr)) !important;
+    gap: 1em !important;
+    transform: none !important;
+    white-space: normal !important;
+    overflow: visible !important;
+}
+
+.homePage .homeSectionsContainer .section0 .itemsContainer > .card,
+.homePage .homeSectionsContainer .section0 .itemsContainer > .emby-scrollbuttons-scrollSlider {
+    width: auto !important;
+    max-width: none !important;
+    margin: 0 !important;
+}
+
+.homePage .homeSectionsContainer .section0 .itemsContainer > .card {
+    min-width: 0 !important;
+}
+
+.homePage .homeSectionsContainer .section0 .itemsContainer [class*="CardImageContainer"] {
+    aspect-ratio: 16 / 9;
+}
+
+.homePage .homeSectionsContainer .section0 .emby-scrollbuttons {
+    display: none !important;
+}
+
+@media (max-width: 720px) {
+    .homePage .homeSectionsContainer .section0 .itemsContainer {
+        grid-template-columns: repeat(auto-fit, minmax(8.5em, 1fr)) !important;
+        gap: 0.75em !important;
+    }
+}
+`;
+    document.head.appendChild(style);
+}
+
+injectDashboardCategoryGrid();
+new MutationObserver(injectDashboardCategoryGrid)
+    .observe(document.documentElement, { childList: true, subtree: true });
+
 // Plugins are bundled, return class directly
 for (const plugin of plugins) {
     window[plugin] = () => {
