@@ -73,6 +73,29 @@ Window
       web.triggerWebAction(action)
   }
 
+  function pastePlainText()
+  {
+    // QtWebEngine can crash while decoding rich macOS clipboard image data.
+    const text = components.system.clipboardText()
+    if (!text)
+      return
+
+    const encodedText = JSON.stringify(text)
+    web.runJavaScript("(function(text) {" +
+      "const element = document.activeElement;" +
+      "if (!element) return;" +
+      "if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {" +
+        "const start = element.selectionStart === null ? element.value.length : element.selectionStart;" +
+        "const end = element.selectionEnd === null ? start : element.selectionEnd;" +
+        "element.setRangeText(text, start, end, 'end');" +
+        "element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: text }));" +
+        "element.dispatchEvent(new Event('change', { bubbles: true }));" +
+      "} else if (element.isContentEditable) {" +
+        "document.execCommand('insertText', false, text);" +
+      "}" +
+    "})(" + encodedText + ");")
+  }
+
   Action
   {
     enabled: mainWindow.webDesktopMode
@@ -144,7 +167,12 @@ Window
   Action
   {
     shortcut: StandardKey.Paste
-    onTriggered: runWebAction(WebEngineView.Paste)
+    onTriggered: {
+      if (components.system.isMacos)
+        mainWindow.pastePlainText()
+      else
+        runWebAction(WebEngineView.Paste)
+    }
     id: action_paste
   }
 

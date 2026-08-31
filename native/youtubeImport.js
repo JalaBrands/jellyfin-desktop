@@ -390,12 +390,6 @@
         }[ch]));
     }
 
-    function setPlainTextInputValue(input, value) {
-        input.value = String(value || '').trim();
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-
     function searchTermsForTrack(title, artist) {
         const simpleTitle = title
             .replace(/[()[\]{}]/g, ' ')
@@ -719,7 +713,7 @@
 
   <div class="field-group">
     <label class="field-label">YouTube Playlist URL</label>
-    <input type="url" id="jmp-yt-url" placeholder="https://www.youtube.com/playlist?list=PL..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+    <input type="text" inputmode="url" id="jmp-yt-url" placeholder="https://www.youtube.com/playlist?list=PL..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
   </div>
 
   <!-- Download-only fields -->
@@ -887,13 +881,6 @@
                 scanBtn.textContent = 'Scan failed';
                 setTimeout(() => { scanBtn.disabled = false; scanBtn.textContent = 'Scan Library'; }, 3000);
             }
-        });
-
-        urlEl.addEventListener('paste', e => {
-            const text = e.clipboardData?.getData('text/plain') || window.clipboardData?.getData('Text') || '';
-            if (!text) return;
-            e.preventDefault();
-            window.setTimeout(() => setPlainTextInputValue(urlEl, text), 0);
         });
 
         // ---- Get API bridge ----

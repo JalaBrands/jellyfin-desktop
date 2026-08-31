@@ -56,6 +56,8 @@ public:
 
   Q_INVOKABLE void openExternalUrl(const QString& url);
 
+  Q_INVOKABLE QString clipboardText() const;
+
   Q_INVOKABLE void runUserScript(QString script);
 
   Q_INVOKABLE QString getNativeShellScript();

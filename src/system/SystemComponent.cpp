@@ -3,6 +3,7 @@
 #include <QMap>
 #include <QtNetwork/qnetworkinterface.h>
 #include <QGuiApplication>
+#include <QClipboard>
 #include <QCursor>
 #include <QDesktopServices>
 #include <QDir>
@@ -497,6 +498,13 @@ QStringList SystemComponent::networkAddresses() const
 void SystemComponent::openExternalUrl(const QString& url)
 {
   QDesktopServices::openUrl(QUrl(url));
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+QString SystemComponent::clipboardText() const
+{
+  const QClipboard* clipboard = QGuiApplication::clipboard();
+  return clipboard ? clipboard->text(QClipboard::Clipboard) : QString();
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
