@@ -9,6 +9,7 @@
 
     const PANEL_ID = 'jmp-yt-import-panel';
     const BTN_ID   = 'jmp-yt-import-btn';
+    const ARTIST_MATCH_THRESHOLD = 0.45;
 
     // -------------------------------------------------------------------------
     // Styles
@@ -406,6 +407,28 @@
         return [item.AlbumArtist, ...(item.Artists || [])].filter(Boolean);
     }
 
+    function hasUsefulArtistHint(artist) {
+        return normalizeTrackText(artist).length >= 3;
+    }
+
+    function artistSimilarity(artist, artists) {
+        if (!hasUsefulArtistHint(artist)) return 1;
+        if (!artists.length) return 0;
+
+        const normalizedArtist = normalizeTrackText(artist);
+        return Math.max(...artists.map(a => {
+            const normalizedCandidate = normalizeTrackText(a);
+            const containsScore = normalizedArtist.length >= 4 && normalizedCandidate.length >= 4 &&
+                (normalizedArtist.includes(normalizedCandidate) || normalizedCandidate.includes(normalizedArtist)) ? 0.9 : 0;
+
+            return Math.max(
+                tokenSimilarity(artist, a),
+                levenshteinRatio(artist, a),
+                containsScore
+            );
+        }));
+    }
+
     let audioLibraryCache = null;
 
     async function fetchAudioLibraryPool() {
@@ -454,20 +477,22 @@
         const titleRatio = levenshteinRatio(title, itemTitle);
         const normalizedTitle = normalizeTrackText(title);
         const normalizedItemTitle = normalizeTrackText(itemTitle);
-        const titleContains = normalizedTitle && normalizedItemTitle &&
+        const titleContains = normalizedTitle && normalizedItemTitle && normalizedItemTitle.length >= 8 &&
             (normalizedTitle.includes(normalizedItemTitle) || normalizedItemTitle.includes(normalizedTitle)) ? 1 : 0;
-        const artistScore = artist && artists.length
-            ? Math.max(...artists.map(a => Math.max(tokenSimilarity(artist, a), levenshteinRatio(artist, a))))
-            : 0;
-        const score = Math.max(titleToken, titleRatio * 0.95, titleContains * 0.9) * 0.78 + artistScore * 0.22;
+        const titleScore = Math.max(titleToken, titleRatio, titleContains);
+        const artistRequired = hasUsefulArtistHint(artist);
+        const artistScore = artistSimilarity(artist, artists);
+        const artistCompatible = !artistRequired || artistScore >= ARTIST_MATCH_THRESHOLD;
+        const rawScore = Math.max(titleToken, titleRatio * 0.95, titleContains * 0.9) * 0.72 + artistScore * 0.28;
+        const score = artistCompatible ? rawScore : Math.min(rawScore, 0.49);
 
-        return { item, score, titleScore: Math.max(titleToken, titleRatio, titleContains), artistScore };
+        return { item, score, titleScore, artistScore, artistRequired, artistCompatible };
     }
 
     function topFuzzyCandidates(title, artist, pool, limit = 24) {
         return pool
             .map(item => scoreJellyfinCandidate(title, artist, item))
-            .filter(row => row.titleScore >= 0.32 || row.score >= 0.42)
+            .filter(row => row.artistCompatible && (row.titleScore >= 0.32 || row.score >= 0.42))
             .sort((a, b) => b.score - a.score)
             .slice(0, limit)
             .map(row => row.item);
@@ -522,11 +547,17 @@
             return null;
         }
 
-        const rankedCandidates = candidates
+        const rankedRows = candidates
             .map(item => scoreJellyfinCandidate(cleanedTitle, artist, item))
+            .filter(row => row.artistCompatible)
             .sort((a, b) => b.score - a.score)
-            .slice(0, 14)
-            .map(row => row.item);
+            .slice(0, 14);
+        const rankedCandidates = rankedRows.map(row => row.item);
+
+        if (!rankedCandidates.length) {
+            console.log(`YouTube import: AI skipped "${rawTitle}" because no candidates matched artist "${artist || ''}"`);
+            return null;
+        }
 
         const payloadCandidates = rankedCandidates.map((item, index) => ({
             index,
@@ -556,6 +587,12 @@
                     const index = Number.isInteger(verdict.index) ? verdict.index : -1;
                     const confidence = Number(verdict.confidence || 0);
                     if (verdict.match && index >= 0 && payloadCandidates[index] && confidence >= 0.72) {
+                        const matchedRow = rankedRows[index];
+                        if (matchedRow?.artistRequired && !matchedRow.artistCompatible) {
+                            console.log(`YouTube import: AI match rejected for "${rawTitle}" because artist did not match`);
+                            finish(null);
+                            return;
+                        }
                         console.log(`YouTube import: AI matched "${rawTitle}" to "${rankedCandidates[index].Name}" at ${Math.round(confidence * 100)}%`);
                         finish({
                             item: rankedCandidates[index],
@@ -599,13 +636,18 @@
         const bestTitleScore = bestRow?.titleScore || 0;
         const bestArtistScore = bestRow?.artistScore || 0;
 
-        if (best && bestTitleScore >= 0.78 && (!artist || bestArtistScore >= 0.25 || bestScore >= 0.82))
+        if (bestRow?.artistRequired && !bestRow.artistCompatible) {
+            console.log(`YouTube import: rejected "${rawTitle || title}" because best candidate artist did not match "${artist}"`);
+            return null;
+        }
+
+        if (best && bestTitleScore >= 0.78 && (!hasUsefulArtistHint(artist) || bestArtistScore >= ARTIST_MATCH_THRESHOLD))
             return { item: best, score: bestScore, ai: false };
 
         const aiMatch = await judgeJellyfinMatchWithAi(rawTitle || title, title, artist, ranked.map(row => row.item));
         if (aiMatch) return aiMatch;
 
-        if (best && bestTitleScore >= 0.64 && bestScore >= 0.66)
+        if (best && bestTitleScore >= 0.64 && bestScore >= 0.66 && (!hasUsefulArtistHint(artist) || bestArtistScore >= ARTIST_MATCH_THRESHOLD))
             return { item: best, score: bestScore, ai: false };
 
         return null;
