@@ -641,7 +641,7 @@ async function showSettingsModal() {
 
     const ytBtn = document.createElement("button");
     ytBtn.className = "raised button-submit emby-button";
-    ytBtn.textContent = "▶ YouTube Import";
+    ytBtn.textContent = "YouTube Import";
     ytBtn.addEventListener("click", () => {
         modalContainer.remove();
         if (!document.getElementById('jmp-yt-import-panel-overlay')) {

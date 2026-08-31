@@ -1,8 +1,8 @@
 // YouTube Playlist Import for Jellyfin Desktop
 // Uses yt-dlp (no API key needed) to read public playlists.
 // Two modes:
-//   Match  — find playlist tracks already in your Jellyfin library
-//   Download — download audio files into a folder Jellyfin can scan
+//   Match - find playlist tracks already in your Jellyfin library
+//   Download - download audio files into a folder Jellyfin can scan
 
 (function () {
     'use strict';
@@ -390,6 +390,12 @@
         }[ch]));
     }
 
+    function setPlainTextInputValue(input, value) {
+        input.value = String(value || '').trim();
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
     function searchTermsForTrack(title, artist) {
         const simpleTitle = title
             .replace(/[()[\]{}]/g, ' ')
@@ -703,30 +709,30 @@
 
         overlay.innerHTML = `
 <div id="${PANEL_ID}">
-  <h2>▶ YouTube Import</h2>
-  <p class="subtitle">Reads any public playlist via yt-dlp — no API key needed.</p>
+  <h2>YouTube Import</h2>
+  <p class="subtitle">Reads any public playlist via yt-dlp - no API key needed.</p>
 
   <div class="mode-tabs">
-    <button class="mode-tab active" data-mode="match">🔍 Match in Library</button>
-    <button class="mode-tab" data-mode="download">⬇️ Download to Library</button>
+    <button class="mode-tab active" data-mode="match">Match in Library</button>
+    <button class="mode-tab" data-mode="download">Download to Library</button>
   </div>
 
   <div class="field-group">
     <label class="field-label">YouTube Playlist URL</label>
-    <input type="text" id="jmp-yt-url" placeholder="https://www.youtube.com/playlist?list=PL…" autocomplete="off" />
+    <input type="url" id="jmp-yt-url" placeholder="https://www.youtube.com/playlist?list=PL..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
   </div>
 
   <!-- Download-only fields -->
   <div id="jmp-yt-dl-fields" style="display:none;">
     <div class="field-group">
       <label class="field-label">Jellyfin Music Library</label>
-      <select id="jmp-yt-library"><option value="">Loading…</option></select>
+      <select id="jmp-yt-library"><option value="">Loading...</option></select>
     </div>
     <div class="field-group" style="margin-top:10px;">
       <label class="field-label">Local Download Folder <span style="font-weight:normal;color:#888;">(Mac path to that library)</span></label>
       <div class="row">
-        <input type="text" id="jmp-yt-local-path" placeholder="Choose folder…" readonly />
-        <button class="btn-browse" id="jmp-yt-browse">Browse…</button>
+        <input type="text" id="jmp-yt-local-path" placeholder="Choose folder..." readonly />
+        <button class="btn-browse" id="jmp-yt-browse">Browse...</button>
       </div>
     </div>
     <div class="field-group" style="margin-top:10px;">
@@ -768,9 +774,9 @@
 
   <div class="btn-row">
     <button class="btn-cancel" id="jmp-yt-cancel">Cancel</button>
-    <button class="btn-secondary" id="jmp-yt-stop" style="display:none;">⏹ Stop</button>
-    <button class="btn-secondary" id="jmp-yt-scan" style="display:none;">🔄 Scan Library</button>
-    <button class="btn-primary" id="jmp-yt-action">🔍 Find Tracks</button>
+    <button class="btn-secondary" id="jmp-yt-stop" style="display:none;">Stop</button>
+    <button class="btn-secondary" id="jmp-yt-scan" style="display:none;">Scan Library</button>
+    <button class="btn-primary" id="jmp-yt-action">Find Tracks</button>
   </div>
 </div>`;
 
@@ -806,7 +812,7 @@
 
         // ---- Populate Jellyfin library dropdown ----
         async function loadLibraries() {
-            libSelectEl.innerHTML = '<option value="">Loading…</option>';
+            libSelectEl.innerHTML = '<option value="">Loading...</option>';
             const libs = await fetchMusicLibraries();
             musicLibraries = libs.map(l => ({ name: l.Name, itemId: l.ItemId }));
             if (!musicLibraries.length) {
@@ -835,7 +841,7 @@
                 dlRes.style.display       = 'none';
                 statusEl.innerHTML        = '';
                 actionState               = 'pending';
-                actionBtn.textContent     = mode === 'match' ? '🔍 Find Tracks' : '⬇️ Download';
+                actionBtn.textContent     = mode === 'match' ? 'Find Tracks' : 'Download';
                 actionBtn.onclick         = null;
                 stopBtn.style.display     = 'none';
                 scanBtn.style.display     = 'none';
@@ -848,7 +854,7 @@
             if (!msg) { statusEl.innerHTML = ''; return; }
             const spin = type === 'loading' ? '<div class="spinner"></div>' : '';
             statusEl.className = `status${type === 'error' ? ' error' : type === 'success' ? ' success' : ''}`;
-            statusEl.innerHTML = `${spin}<span>${msg}</span>`;
+            statusEl.innerHTML = `${spin}<span>${escapeHtml(msg)}</span>`;
         }
 
         function close() {
@@ -870,17 +876,24 @@
 
         scanBtn.addEventListener('click', async () => {
             scanBtn.disabled = true;
-            scanBtn.textContent = '🔄 Scanning…';
+            scanBtn.textContent = 'Scanning...';
             const idx = parseInt(libSelectEl.value, 10);
             const lib = musicLibraries[idx];
             try {
                 await scanJellyfinLibrary(lib ? lib.itemId : null);
-                scanBtn.textContent = '✅ Scan started';
-                setTimeout(() => { scanBtn.disabled = false; scanBtn.textContent = '🔄 Scan Library'; }, 3000);
+                scanBtn.textContent = 'Scan started';
+                setTimeout(() => { scanBtn.disabled = false; scanBtn.textContent = 'Scan Library'; }, 3000);
             } catch (err) {
-                scanBtn.textContent = '❌ Scan failed';
-                setTimeout(() => { scanBtn.disabled = false; scanBtn.textContent = '🔄 Scan Library'; }, 3000);
+                scanBtn.textContent = 'Scan failed';
+                setTimeout(() => { scanBtn.disabled = false; scanBtn.textContent = 'Scan Library'; }, 3000);
             }
+        });
+
+        urlEl.addEventListener('paste', e => {
+            const text = e.clipboardData?.getData('text/plain') || window.clipboardData?.getData('Text') || '';
+            if (!text) return;
+            e.preventDefault();
+            window.setTimeout(() => setPlainTextInputValue(urlEl, text), 0);
         });
 
         // ---- Get API bridge ----
@@ -947,7 +960,7 @@
             matchedItems = [];
             stopBtn.style.display = '';
 
-            setStatus('Running yt-dlp to fetch playlist…', 'loading');
+            setStatus('Running yt-dlp to fetch playlist...', 'loading');
 
             let jsonLines;
             try {
@@ -970,7 +983,7 @@
                 plNameEl.value = tracks[0].playlistTitle;
 
             matchRes.style.display = 'flex';
-            setStatus(`Matching ${tracks.length} tracks against your library…`, 'loading');
+            setStatus(`Matching ${tracks.length} tracks against your library...`, 'loading');
 
             let found = 0;
             for (let i = 0; i < tracks.length; i++) {
@@ -994,19 +1007,19 @@
 <td>${yt.position}</td>
 <td title="${escapeHtml(yt.title)}">${escapeHtml(cleanedTitle || yt.title)}</td>
 <td title="${escapeHtml(yt.channel)}">${escapeHtml(artistHint)}</td>
-<td title="${escapeHtml(matchNote)}">${escapeHtml(match.item.Name)}${jArtist ? ` — ${escapeHtml(jArtist)}` : ''}</td>
-<td><span class="badge badge-found">${match.ai ? 'AI' : '✓'} Found</span></td>`;
+<td title="${escapeHtml(matchNote)}">${escapeHtml(match.item.Name)}${jArtist ? ` - ${escapeHtml(jArtist)}` : ''}</td>
+<td><span class="badge badge-found">${match.ai ? 'AI' : 'Found'}</span></td>`;
                 } else {
                     tr.className = 'unmatched';
                     tr.innerHTML = `
 <td>${yt.position}</td>
 <td title="${escapeHtml(yt.title)}">${escapeHtml(cleanedTitle || yt.title)}</td>
 <td title="${escapeHtml(yt.channel)}">${escapeHtml(artistHint)}</td>
-<td>—</td>
+<td>-</td>
 <td><span class="badge badge-missing">Not in library</span></td>`;
                 }
                 tbody.appendChild(tr);
-                summaryEl.innerHTML = `Checked ${i + 1} / ${tracks.length} — <strong>${found} matched</strong>`;
+                summaryEl.innerHTML = `Checked ${i + 1} / ${tracks.length} - <strong>${found} matched</strong>`;
 
                 if (i % 5 === 4) await new Promise(r => setTimeout(r, 0));
             }
@@ -1023,7 +1036,7 @@
 
             // Switch action button to Create Playlist
             actionState = 'create';
-            actionBtn.textContent = `✅ Create Playlist (${found} tracks)`;
+            actionBtn.textContent = `Create Playlist (${found} tracks)`;
             actionBtn.disabled = false;
         }
 
@@ -1031,11 +1044,11 @@
             if (!matchedItems.length) return;
             const name = plNameEl.value.trim() || `YouTube Import ${new Date().toLocaleDateString()}`;
             actionBtn.disabled = true;
-            setStatus('Creating playlist…', 'loading');
+            setStatus('Creating playlist...', 'loading');
             try {
                 const ids = matchedItems.map(m => m.jellyfinId);
                 const result = await createJellyfinPlaylist(name, ids);
-                setStatus(`✅ "${name}" created with ${ids.length} tracks!`, 'success');
+                setStatus(`"${name}" created with ${ids.length} tracks!`, 'success');
                 setTimeout(() => {
                     overlay.remove();
                     if (result && result.Id && window.Emby && window.Emby.Page)
@@ -1075,7 +1088,7 @@
             scanBtn.style.display  = 'none';
 
             // Step 1: fetch playlist metadata
-            setStatus('Fetching playlist info…', 'loading');
+            setStatus('Fetching playlist info...', 'loading');
             let jsonLines;
             try {
                 jsonLines = await fetchPlaylist(url);
@@ -1102,8 +1115,8 @@
             }
 
             // Step 2: check library for each track
-            setStatus(`Checking library for ${tracks.length} tracks…`, 'loading');
-            dlSummary.innerHTML = `Checking 0 / ${tracks.length}…`;
+            setStatus(`Checking library for ${tracks.length} tracks...`, 'loading');
+            dlSummary.innerHTML = `Checking 0 / ${tracks.length}...`;
 
             const toDownload = [];
             let alreadyHave = 0;
@@ -1122,7 +1135,7 @@
                     toDownload.push(`https://www.youtube.com/watch?v=${yt.videoId}`);
                 }
 
-                dlSummary.innerHTML = `Checked ${i + 1} / ${tracks.length} — <strong>${alreadyHave} already owned</strong>, ${toDownload.length} to download`;
+                dlSummary.innerHTML = `Checked ${i + 1} / ${tracks.length} - <strong>${alreadyHave} already owned</strong>, ${toDownload.length} to download`;
                 if (i % 5 === 4) await new Promise(r => setTimeout(r, 0));
             }
 
@@ -1130,14 +1143,14 @@
                 stopBtn.style.display = 'none';
                 scanBtn.style.display = 'none';
                 actionBtn.disabled = false;
-                setStatus('✅ All tracks are already in your library — nothing to download!', 'success');
+                setStatus('All tracks are already in your library - nothing to download!', 'success');
                 dlSummary.innerHTML = `<strong>${alreadyHave}</strong> tracks already owned.`;
                 return;
             }
 
-            appendLog(`\n▶ Downloading ${toDownload.length} tracks (${alreadyHave} already in library, skipped)…\n`, 'log-info');
+            appendLog(`\nDownloading ${toDownload.length} tracks (${alreadyHave} already in library, skipped)...\n`, 'log-info');
             dlTotal = toDownload.length;
-            setStatus(`Downloading ${toDownload.length} tracks as ${format.toUpperCase()}…`, 'loading');
+            setStatus(`Downloading ${toDownload.length} tracks as ${format.toUpperCase()}...`, 'loading');
             dlSummary.innerHTML = `<strong>0</strong> / ${dlTotal} downloaded`;
 
             // Step 3: download only missing tracks
@@ -1169,9 +1182,9 @@
                 scanBtn.style.display  = '';
                 actionBtn.disabled     = false;
                 if (exitCode === 0) {
-                    setStatus(`✅ Done! ${dlCompleted} downloaded, ${alreadyHave} already owned.`, 'success');
+                    setStatus(`Done! ${dlCompleted} downloaded, ${alreadyHave} already owned.`, 'success');
                     dlSummary.innerHTML = `<strong>${dlCompleted}</strong> / ${dlTotal} downloaded`;
-                    appendLog(`\n✅ Saved to: ${folder}`, 'log-done');
+                    appendLog(`\nSaved to: ${folder}`, 'log-done');
                 } else {
                     setStatus(`Download finished with errors (exit code ${exitCode}).`, 'error');
                 }
